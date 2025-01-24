@@ -25,27 +25,28 @@ namespace Guap250494
                     profit = 0;
                     loss = 0;
                 }
-                foreach (var symbol in symbolList.Data.Where(x => x.UnrealizedPnl > .001M || x.UnrealizedPnl < -0.002M))
+                foreach (var symbol in symbolList.Data.Where(x => x.UnrealizedPnl > .003M))
                 {
                     if (symbol != null && symbol.IsOpen)
                     {
                         var z = await restClient.FuturesApi.Trading.PlaceOrderAsync
                         (symbol.Symbol, Kucoin.Net.Enums.OrderSide.Buy, Kucoin.Net.Enums.NewOrderType.Market, 0, closeOrder: true, marginMode: Kucoin.Net.Enums.FuturesMarginMode.Cross);
                         Console.WriteLine("Closed " + symbol.Symbol + " - " + symbol.UnrealizedPnl);
-                        if(z.Success && symbol.UnrealizedPnl > 0)
-                        {
-                            profit++;
-                        }
-                        if (z.Success && symbol.UnrealizedPnl < 0)
-                        {
-                            loss++;
-                        }
                         continue;
                     }
                 }
-                canBuy = profit >= loss;
-                mode = profit >= loss ? mode : (mode == OrderSide.Buy) ? OrderSide.Sell : OrderSide.Buy;
-                if (canBuy)
+
+                foreach (var symbol in symbolList.Data.Where(x => x.UnrealizedPnlPercentage < -3))
+                {
+                    if (symbol != null && symbol.IsOpen)
+                    {
+                        var result = await restClient.FuturesApi.Trading.PlaceOrderAsync
+                                (symbol.Symbol, mode, Kucoin.Net.Enums.NewOrderType.Market, 25, quantityInQuoteAsset: 1, marginMode: Kucoin.Net.Enums.FuturesMarginMode.Cross);
+                        continue;
+                    }
+                }
+
+                if (true && symbolList.Data.Count() < 100)
                 {
                     var tickerList = await restClient.FuturesApi.ExchangeData.GetTickersAsync();
                     {
