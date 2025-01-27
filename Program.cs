@@ -20,21 +20,21 @@ namespace Guap250494
                 var symbolList = await restClient.FuturesApi.Account.GetPositionsAsync();
                 var loss = symbolList.Data.Sum(x => x.UnrealizedPnl);
                 Console.WriteLine(loss);
-                foreach (var symbol in symbolList.Data.Where(x => x.UnrealizedPnl > .02M ||x.UnrealizedPnl < - 0.01M))
+                foreach (var symbol in symbolList.Data.Where(x => x.UnrealizedPnl > .01M ||x.UnrealizedPnl < - 0.003M))
                 {
                     if (symbol != null && symbol.IsOpen)
                     {
                         var z = await restClient.FuturesApi.Trading.PlaceOrderAsync
                         (symbol.Symbol, Kucoin.Net.Enums.OrderSide.Buy, Kucoin.Net.Enums.NewOrderType.Market, 0, closeOrder: true, marginMode: Kucoin.Net.Enums.FuturesMarginMode.Cross);
                         Console.WriteLine("Closed " + symbol.Symbol + " - " + symbol.UnrealizedPnl);
-
-                        if(symbol.UnrealizedPnl < -0.01M && symbol.CurrentQuantity > 0)
+                        
+                        if(symbol.UnrealizedPnl < -0.003M)
                         {
                             mode = OrderSide.Sell;
                         }
-                        if (symbol.UnrealizedPnl < -0.01M && symbol.CurrentQuantity > 0)
+                        if (symbol.UnrealizedPnl > .01M)
                         {
-                            mode = OrderSide.Sell;
+                            mode = OrderSide.Buy;
                         }
 
                         continue;
@@ -52,7 +52,7 @@ namespace Guap250494
                     }
                 }
 
-                if (symbolList.Data.Count() < 50)
+                if (mode == OrderSide.Buy)
                 {
                     var tickerList = await restClient.FuturesApi.ExchangeData.GetTickersAsync();
                     {
