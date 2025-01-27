@@ -1,4 +1,5 @@
-﻿using Kucoin.Net.Clients;
+﻿using CryptoExchange.Net.CommonObjects;
+using Kucoin.Net.Clients;
 using Kucoin.Net.Enums;
 using System;
 
@@ -8,35 +9,40 @@ namespace Guap250494
     {
         static async Task Main(string[] args)
         {
-            bool canBuy = true;
-            int profit = 0;
-            int loss = 0;
             var mode = OrderSide.Buy;
             while (true)
             {
-                Console.WriteLine("Start /n");
+                Task.Delay(1000 * 10).Wait();
                 var restClient = new KucoinRestClient();
                 restClient.SetApiCredentials(new Kucoin.Net.Objects.KucoinApiCredentials
                     ("6792c43bc0a1b1000135cb65", "25ab9c72-17e6-4951-b7a8-6e2fce9c3026", "test1234"));
 
                 var symbolList = await restClient.FuturesApi.Account.GetPositionsAsync();
-                if(symbolList.Data.Count() < 5)
-                {
-                    profit = 0;
-                    loss = 0;
-                }
-                foreach (var symbol in symbolList.Data.Where(x => x.UnrealizedPnl > .003M))
+                var loss = symbolList.Data.Sum(x => x.UnrealizedPnl);
+                Console.WriteLine(loss);
+                foreach (var symbol in symbolList.Data.Where(x => x.UnrealizedPnl > .02M ||x.UnrealizedPnl < - 0.01M))
                 {
                     if (symbol != null && symbol.IsOpen)
                     {
                         var z = await restClient.FuturesApi.Trading.PlaceOrderAsync
                         (symbol.Symbol, Kucoin.Net.Enums.OrderSide.Buy, Kucoin.Net.Enums.NewOrderType.Market, 0, closeOrder: true, marginMode: Kucoin.Net.Enums.FuturesMarginMode.Cross);
                         Console.WriteLine("Closed " + symbol.Symbol + " - " + symbol.UnrealizedPnl);
+
+                        if(symbol.UnrealizedPnl < -0.01M && symbol.CurrentQuantity > 0)
+                        {
+                            mode = OrderSide.Sell;
+                        }
+                        if (symbol.UnrealizedPnl < -0.01M && symbol.CurrentQuantity > 0)
+                        {
+                            mode = OrderSide.Sell;
+                        }
+
                         continue;
                     }
+
                 }
 
-                foreach (var symbol in symbolList.Data.Where(x => x.UnrealizedPnlPercentage < -3))
+                foreach (var symbol in symbolList.Data.Where(x => x.UnrealizedPnlPercentage < -.1M))
                 {
                     if (symbol != null && symbol.IsOpen)
                     {
@@ -46,7 +52,7 @@ namespace Guap250494
                     }
                 }
 
-                if (true && symbolList.Data.Count() < 100)
+                if (symbolList.Data.Count() < 50)
                 {
                     var tickerList = await restClient.FuturesApi.ExchangeData.GetTickersAsync();
                     {
