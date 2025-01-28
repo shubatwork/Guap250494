@@ -1,6 +1,8 @@
-﻿using Kucoin.Net.Clients;
+﻿using CryptoExchange.Net.CommonObjects;
+using Kucoin.Net.Clients;
 using Kucoin.Net.Enums;
 using Kucoin.Net.Objects;
+using Kucoin.Net.Objects.Models.Futures;
 
 namespace Guap250494
 {
@@ -14,7 +16,6 @@ namespace Guap250494
             restClient.SetApiCredentials(new KucoinApiCredentials("6792c43bc0a1b1000135cb65", "25ab9c72-17e6-4951-b7a8-6e2fce9c3026", "test1234"));
 
             var mode = OrderSide.Buy;
-
             while (true)
             {
                 await Task.Delay(1000);
@@ -26,23 +27,34 @@ namespace Guap250494
                     continue;
                 }
                 
-                foreach (var symbol in symbolList.Data.Where(x => x.UnrealizedPnl > 0.01M && x.IsOpen))
+                KucoinPosition? kucoinPosition = null;
+
+                var pnl = symbolList.Data.Sum(x => x.UnrealizedPnl);
+                if (pnl > 1M)
+                {
+                    kucoinPosition = symbolList.Data.MaxBy(x => x.UnrealizedPnl);
+                }
+                if(pnl < -2M)
+                {
+                    kucoinPosition = symbolList.Data.MinBy(x => x.UnrealizedPnl);
+                }
+
+                if(kucoinPosition != null)
                 {
                     var closeOrderResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
-                        symbol.Symbol, OrderSide.Buy, NewOrderType.Market, 0, closeOrder: true, marginMode: FuturesMarginMode.Cross);
+                        kucoinPosition.Symbol, OrderSide.Buy, NewOrderType.Market, 0, closeOrder: true, marginMode: FuturesMarginMode.Cross);
 
                     if (closeOrderResult.Success)
                     {
-                        Console.WriteLine("Closed " + symbol.Symbol + " - " + symbol.UnrealizedPnl);
+                        Console.WriteLine("Closed " + kucoinPosition.Symbol + " - " + kucoinPosition.UnrealizedPnl);
                     }
                     else
                     {
-                        Console.WriteLine("Failed to close " + symbol.Symbol + ": " + closeOrderResult.Error);
+                        Console.WriteLine("Failed to close " + kucoinPosition.Symbol + ": " + closeOrderResult.Error);
                     }
                 }
-
-                var count = 50;
-
+                
+                var count = 100;
                 if (symbolList.Data.Count(x => x.UnrealizedPnl > -0.01M) < count)
                 {
                     var tickerList = await restClient.FuturesApi.ExchangeData.GetTickersAsync();
@@ -51,9 +63,13 @@ namespace Guap250494
                         Console.WriteLine("Failed to get tickers: " + tickerList.Error);
                         continue;
                     }
-
+                     
                     foreach (var randomSymbol in tickerList.Data.OrderByDescending(x => x.Symbol))
                     {
+                        if(symbolList.Data.Any(x => x.Symbol == randomSymbol.Symbol))
+                        {
+                            continue;
+                        }
                         var getPositionResult = await restClient.FuturesApi.Account.GetPositionAsync(randomSymbol.Symbol);
                         if (getPositionResult.Success && getPositionResult.Data.IsOpen)
                         {
