@@ -25,9 +25,7 @@ namespace Guap250494
                     Console.WriteLine("Failed to get positions: " + symbolList.Error);
                     continue;
                 }
-
-                var loss = symbolList.Data.Sum(x => x.UnrealizedPnl);
-
+                
                 foreach (var symbol in symbolList.Data.Where(x => x.UnrealizedPnl > 0.01M && x.IsOpen))
                 {
                     var closeOrderResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
@@ -43,7 +41,9 @@ namespace Guap250494
                     }
                 }
 
-                if (symbolList.Data.Count(x => x.UnrealizedPnl > -0.01M) < 25)
+                var count = 50;
+
+                if (symbolList.Data.Count(x => x.UnrealizedPnl > -0.01M) < count)
                 {
                     var tickerList = await restClient.FuturesApi.ExchangeData.GetTickersAsync();
                     if (!tickerList.Success)
