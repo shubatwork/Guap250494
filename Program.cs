@@ -7,7 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace SimplifiedTradingBot
+namespace CompleteTradingBot
 {
     internal class Program
     {
@@ -29,11 +29,14 @@ namespace SimplifiedTradingBot
                     var balanceResult = await restClient.FuturesApi.Account.GetAccountOverviewAsync("USDT");
                     if (!balanceResult.Success) continue;
 
-                    // 2. Get all symbols and calculate levels
+                    // 2. Get all symbols
                     var tickerList = await restClient.FuturesApi.ExchangeData.GetTickersAsync();
                     if (!tickerList.Success) continue;
 
-                    // 3. Process each symbol
+                    // 3. Get current positions
+                    var positionResult = await restClient.FuturesApi.Account.GetPositionsAsync();
+                    var positions = positionResult.Success ? positionResult.Data : new List<KucoinPosition>();
+
                     foreach (var ticker in tickerList.Data)
                     {
                         var candles = await restClient.FuturesApi.ExchangeData.GetKlinesAsync(
@@ -51,26 +54,34 @@ namespace SimplifiedTradingBot
                         var currentPrice = await GetCurrentPrice(ticker.Symbol);
                         if (currentPrice == null) continue;
 
+                        // Calculate pivot levels
                         var levels = CalculatePivotLevels(
                             prevDay.HighPrice,
                             prevDay.LowPrice,
                             prevDay.ClosePrice
                         );
 
-                        // Determine nearest level
+                        // ENTRY LOGIC: Nearest level orders
                         var (targetLevel, targetSide) = currentPrice > levels.pivot
                             ? (FindNearestSupport(currentPrice.Value, levels.supports), OrderSide.Buy)
                             : (FindNearestResistance(currentPrice.Value, levels.resistances), OrderSide.Sell);
 
-                        if (!targetLevel.HasValue) continue;
-
-                        // Order management
-                        var openOrders = await GetOpenOrders(ticker.Symbol);
-                        await CancelNonNearestOrders(openOrders, targetLevel.Value, targetSide);
-
-                        if (!OrderExistsAtLevel(openOrders, targetLevel.Value, targetSide))
+                        if (targetLevel.HasValue)
                         {
-                            await PlaceLimitOrder(ticker.Symbol, targetSide, targetLevel.Value, 1);
+                            var openOrders = await GetOpenOrders(ticker.Symbol);
+                            await CancelNonNearestOrders(openOrders, targetLevel.Value, targetSide);
+
+                            if (!OrderExistsAtLevel(openOrders, targetLevel.Value, targetSide))
+                            {
+                                await PlaceLimitOrder(ticker.Symbol, targetSide, targetLevel.Value, 1);
+                            }
+                        }
+
+                        // EXIT LOGIC: Position management
+                        var position = positions.FirstOrDefault(p => p.Symbol == ticker.Symbol);
+                        if (position != null && position.CurrentQuantity != 0)
+                        {
+                            await ManagePositionExit(position, levels.supports, levels.resistances, currentPrice.Value);
                         }
                     }
                 }
@@ -78,6 +89,40 @@ namespace SimplifiedTradingBot
                 {
                     Console.WriteLine($"Error: {ex.Message}");
                 }
+            }
+        }
+
+        private static async Task ManagePositionExit(KucoinPosition position, decimal[] supports,
+            decimal[] resistances, decimal currentPrice)
+        {
+            var isLong = position.CurrentQuantity > 0;
+            var exitConditionMet = false;
+
+            if (isLong)
+            {
+                // Long exit conditions
+                var nearestResistance = resistances.OrderBy(r => r)
+                    .FirstOrDefault(r => r > position.AverageEntryPrice);
+                var nearestSupport = supports.OrderByDescending(s => s)
+                    .FirstOrDefault(s => s < currentPrice);
+
+                exitConditionMet = currentPrice >= nearestResistance || currentPrice <= nearestSupport;
+            }
+            else
+            {
+                // Short exit conditions
+                var nearestSupport = supports.OrderByDescending(s => s)
+                    .FirstOrDefault(s => s < position.AverageEntryPrice);
+                var nearestResistance = resistances.OrderBy(r => r)
+                    .FirstOrDefault(r => r > currentPrice);
+
+                exitConditionMet = currentPrice <= nearestSupport || currentPrice >= nearestResistance;
+            }
+
+            if (exitConditionMet)
+            {
+                await ClosePosition(position.Symbol, position.CurrentQuantity);
+                Console.WriteLine($"Closed {position.Symbol} position at {currentPrice}");
             }
         }
 
@@ -112,7 +157,6 @@ namespace SimplifiedTradingBot
                 o.Side == side);
         }
 
-        // Keep these methods unchanged from original code:
         private static (decimal pivot, decimal[] supports, decimal[] resistances) CalculatePivotLevels(
             decimal high, decimal low, decimal close)
         {
@@ -149,6 +193,25 @@ namespace SimplifiedTradingBot
                 timeInForce: TimeInForce.GoodTillCanceled,
                 marginMode: FuturesMarginMode.Cross
             );
+        }
+
+        private static async Task ClosePosition(string symbol, decimal quantity)
+        {
+            var side = quantity > 0 ? OrderSide.Sell : OrderSide.Buy;
+            var result = await restClient.FuturesApi.Trading.PlaceOrderAsync(
+                symbol: symbol,
+                side: side,
+                type: NewOrderType.Market,
+                leverage: 20,
+                quantity: Math.Abs((int)quantity),
+                marginMode: FuturesMarginMode.Cross,
+                closeOrder: true
+            );
+
+            if (!result.Success)
+            {
+                Console.WriteLine($"Failed to close position: {result.Error?.Message}");
+            }
         }
     }
 }
