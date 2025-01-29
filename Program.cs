@@ -40,14 +40,19 @@ namespace CompleteTradingBot
                     {
                         var candles = await restClient.FuturesApi.ExchangeData.GetKlinesAsync(
                             ticker.Symbol,
-                            FuturesKlineInterval.OneDay,
-                            DateTime.UtcNow.AddDays(-2),
+                            FuturesKlineInterval.OneHour,
+                            DateTime.UtcNow.AddHours(-4),
                             DateTime.UtcNow);
 
                         if (!candles.Success || candles.Data.Count() < 2) continue;
 
-                        var prevDay = candles.Data.FirstOrDefault(x =>
-                            x.OpenTime.Date == DateTime.UtcNow.AddDays(-1).Date);
+                        var prevDay = new KucoinFuturesKline()
+                        {
+                            OpenPrice = candles.Data.Sum(x=>x.OpenPrice) / candles.Data.Count(),
+                            ClosePrice = candles.Data.Sum(x => x.ClosePrice) / candles.Data.Count(),
+                            HighPrice = candles.Data.Sum(x => x.HighPrice) / candles.Data.Count(),
+                            LowPrice = candles.Data.Sum(x => x.LowPrice) / candles.Data.Count()
+                        };
                         if (prevDay == null) continue;
 
                         var currentPrice = await GetCurrentPrice(ticker.Symbol);
@@ -69,7 +74,6 @@ namespace CompleteTradingBot
                         {
                             var openOrders = await GetOpenOrders(ticker.Symbol);
                             await CancelNonNearestOrders(openOrders, targetLevel.Value, targetSide);
-
                             if (!OrderExistsAtLevel(openOrders, targetLevel.Value, targetSide))
                             {
                                 await PlaceLimitOrder(ticker.Symbol, targetSide, targetLevel.Value, 1);
