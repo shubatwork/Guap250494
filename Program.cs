@@ -21,7 +21,6 @@ namespace CompleteTradingBot
 
             while (true)
             {
-                await Task.Delay(5000);
 
                 try
                 {
@@ -89,6 +88,7 @@ namespace CompleteTradingBot
                 {
                     Console.WriteLine($"Error: {ex.Message}");
                 }
+                await Task.Delay(60000);
             }
         }
 
@@ -146,7 +146,11 @@ namespace CompleteTradingBot
                 o.Price != targetLevel ||
                 o.Side != targetSide))
             {
-                await restClient.FuturesApi.Trading.CancelOrderAsync(order.Id);
+                var result = await restClient.FuturesApi.Trading.CancelOrderAsync(order.Id);
+                if (result.Success)
+                {
+                    Console.WriteLine($"Cancelled {order.Side} order at {order.Price}");
+                }
             }
         }
 
@@ -183,16 +187,20 @@ namespace CompleteTradingBot
 
         private static async Task PlaceLimitOrder(string symbol, OrderSide side, decimal price, decimal quantity)
         {
-            await restClient.FuturesApi.Trading.PlaceOrderAsync(
+            var result = await restClient.FuturesApi.Trading.PlaceOrderAsync(
                 symbol: symbol,
                 side: side,
                 type: NewOrderType.Limit,
                 leverage: 20,
-                quantity: (int)quantity,
-                price: price,
+                quantityInQuoteAsset: (int)quantity,
+                price: Math.Round(price, 3),
                 timeInForce: TimeInForce.GoodTillCanceled,
                 marginMode: FuturesMarginMode.Cross
             );
+            if (result.Success)
+            {
+                Console.WriteLine($"Placed {side} order at {price}");
+            }
         }
 
         private static async Task ClosePosition(string symbol, decimal quantity)
@@ -203,7 +211,7 @@ namespace CompleteTradingBot
                 side: side,
                 type: NewOrderType.Market,
                 leverage: 20,
-                quantity: Math.Abs((int)quantity),
+                quantityInQuoteAsset: Math.Abs((int)quantity),
                 marginMode: FuturesMarginMode.Cross,
                 closeOrder: true
             );
