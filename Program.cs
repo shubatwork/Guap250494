@@ -22,15 +22,7 @@ namespace Guap250494
                 var acountInfo = await restClient.FuturesApi.Account.GetAccountOverviewAsync("USDT");
                 Console.WriteLine(acountInfo.Data.MarginBalance + " - " + acountInfo.Data.UnrealizedPnl + " - " + acountInfo.Data.RiskRatio);
                 Thread.Sleep(1000);
-               // continue;
-                if (DateTime.UtcNow.Second % 2 == 0)
-                {
-                    mode = OrderSide.Buy;
-                }
-                else
-                {
-                    mode = OrderSide.Sell;
-                }
+                //continue;
 
                 bool canCreate = acountInfo.Data.RiskRatio < .15M;
 
@@ -41,7 +33,7 @@ namespace Guap250494
                     continue;
                 }
 
-                KucoinPosition? kucoinPosition = symbolList.Data.Where(x => x.UnrealizedPnlPercentage > 0.004M).MaxBy(x => x.UnrealizedPnlPercentage);
+                KucoinPosition? kucoinPosition = symbolList.Data.Where(x => x.UnrealizedPnl > 0.01M).MaxBy(x => x.UnrealizedPnl);
 
                 if (kucoinPosition != null)
                 {
@@ -91,7 +83,7 @@ namespace Guap250494
                         continue;
                     }
 
-                    foreach (var randomSymbol in tickerList.Data.Where(x=> !ErrorList.Contains(x.Symbol)).OrderByDescending(x => x.Symbol))
+                    foreach (var randomSymbol in tickerList.Data.Where(x => !ErrorList.Contains(x.Symbol)).OrderByDescending(x => x.Symbol))
                     {
                         if (symbolList.Data.Any(x => x.Symbol == randomSymbol.Symbol))
                         {
@@ -99,23 +91,16 @@ namespace Guap250494
                         }
 
                         var ticker = await restClient.FuturesApi.ExchangeData.GetKlinesAsync(randomSymbol.Symbol, FuturesKlineInterval.OneHour, DateTime.UtcNow.AddHours(-1));
-
                         var current = ticker.Data.LastOrDefault();
 
-                        if (mode == OrderSide.Buy && current?.OpenPrice < current?.ClosePrice)
+                        if (current?.OpenPrice < current?.ClosePrice)
                         {
-                            continue;
+                            mode = OrderSide.Buy;
                         }
 
-                        if (mode == OrderSide.Buy && current?.OpenPrice > current?.ClosePrice)
+                        if (current?.OpenPrice > current?.ClosePrice)
                         {
-                            continue;
-                        }
-
-                        var getPositionResult = await restClient.FuturesApi.Account.GetPositionAsync(randomSymbol.Symbol);
-                        if (getPositionResult.Success && getPositionResult.Data.IsOpen)
-                        {
-                            continue;
+                            mode = OrderSide.Sell;
                         }
 
                         var placeOrderResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
@@ -132,8 +117,18 @@ namespace Guap250494
                             randomSymbol.Symbol, mode, NewOrderType.Market, 25, quantityInQuoteAsset: 2, marginMode: FuturesMarginMode.Cross);
                             if (!placeOrderResult.Success)
                             {
-                                ErrorList.Add(randomSymbol.Symbol);
-                                Console.WriteLine("Failed to open position on " + randomSymbol.Symbol + ": " + placeOrderResult.Error);
+                                placeOrderResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
+                                randomSymbol.Symbol, mode, NewOrderType.Market, 25, quantityInQuoteAsset: 3, marginMode: FuturesMarginMode.Cross);
+                                if (!placeOrderResult.Success)
+                                {
+                                    placeOrderResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
+                                    randomSymbol.Symbol, mode, NewOrderType.Market, 25, quantityInQuoteAsset: 4, marginMode: FuturesMarginMode.Cross);
+                                    if (!placeOrderResult.Success)
+                                    {
+                                        ErrorList.Add(randomSymbol.Symbol);
+                                        Console.WriteLine("Failed to open position on " + randomSymbol.Symbol + " : " + placeOrderResult.Error);
+                                    }
+                                }
                             }
                             if (placeOrderResult.Success)
                             {
