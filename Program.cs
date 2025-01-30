@@ -1,4 +1,5 @@
-﻿using Kucoin.Net.Clients;
+﻿using CryptoExchange.Net.Interfaces;
+using Kucoin.Net.Clients;
 using Kucoin.Net.Enums;
 using Kucoin.Net.Objects;
 using Kucoin.Net.Objects.Models.Futures;
@@ -14,14 +15,15 @@ namespace Guap250494
             restClient = new KucoinRestClient();
             var mode = OrderSide.Buy;
             restClient.SetApiCredentials(new KucoinApiCredentials("6792c43bc0a1b1000135cb65", "25ab9c72-17e6-4951-b7a8-6e2fce9c3026", "test1234"));
+            List<string> ErrorList = new List<string>();
 
             while (true)
             {
                 var acountInfo = await restClient.FuturesApi.Account.GetAccountOverviewAsync("USDT");
-                Console.WriteLine(acountInfo.Data.MarginBalance + " - " + acountInfo.Data.UnrealizedPnl);
+                Console.WriteLine(acountInfo.Data.MarginBalance + " - " + acountInfo.Data.UnrealizedPnl + " - " + acountInfo.Data.RiskRatio);
                 Thread.Sleep(1000);
-                continue;
-                if (DateTime.UtcNow.Minute % 2 == 0)
+               // continue;
+                if (DateTime.UtcNow.Second % 2 == 0)
                 {
                     mode = OrderSide.Buy;
                 }
@@ -30,7 +32,7 @@ namespace Guap250494
                     mode = OrderSide.Sell;
                 }
 
-                bool canCreate = false;
+                bool canCreate = acountInfo.Data.RiskRatio < .15M;
 
                 var symbolList = await restClient.FuturesApi.Account.GetPositionsAsync();
                 if (!symbolList.Success)
@@ -39,11 +41,10 @@ namespace Guap250494
                     continue;
                 }
 
-                KucoinPosition? kucoinPosition = symbolList.Data.Where(x => x.UnrealizedPnl > 0.002M).MaxBy(x => x.UnrealizedPnl);
+                KucoinPosition? kucoinPosition = symbolList.Data.Where(x => x.UnrealizedPnlPercentage > 0.004M).MaxBy(x => x.UnrealizedPnlPercentage);
 
                 if (kucoinPosition != null)
                 {
-                    canCreate = true;
                     var closeOrderResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
                         kucoinPosition.Symbol, OrderSide.Buy, NewOrderType.Market, 0, closeOrder: true, marginMode: FuturesMarginMode.Cross);
 
@@ -59,7 +60,30 @@ namespace Guap250494
 
                 if (canCreate)
                 {
+                    var symbolList1 = await restClient.FuturesApi.Account.GetPositionsAsync();
+                    foreach (var symbol in symbolList1.Data)
+                    {
+                        if (symbol != null && symbol.CurrentQuantity < 0 && symbol.UnrealizedRoePercentage < -1m)
+                        {
+                            var placeOrderResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
+                                    symbol.Symbol, OrderSide.Sell, NewOrderType.Market, 25, quantityInQuoteAsset: 1, marginMode: FuturesMarginMode.Cross);
+                        }
 
+                    }
+
+                    foreach (var symbol in symbolList1.Data)
+                    {
+                        if (symbol != null && symbol.CurrentQuantity > 0 && symbol.UnrealizedRoePercentage < -1m)
+                        {
+                            var placeOrderResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
+                                    symbol.Symbol, OrderSide.Buy, NewOrderType.Market, 25, quantityInQuoteAsset: 1, marginMode: FuturesMarginMode.Cross);
+                        }
+
+                    }
+                }
+
+                if (canCreate)
+                {
                     var tickerList = await restClient.FuturesApi.ExchangeData.GetTickersAsync();
                     if (!tickerList.Success)
                     {
@@ -67,14 +91,14 @@ namespace Guap250494
                         continue;
                     }
 
-                    foreach (var randomSymbol in tickerList.Data.OrderByDescending(x => x.Symbol))
+                    foreach (var randomSymbol in tickerList.Data.Where(x=> !ErrorList.Contains(x.Symbol)).OrderByDescending(x => x.Symbol))
                     {
                         if (symbolList.Data.Any(x => x.Symbol == randomSymbol.Symbol))
                         {
                             continue;
                         }
 
-                        var ticker = await restClient.FuturesApi.ExchangeData.GetKlinesAsync(randomSymbol.Symbol, FuturesKlineInterval.FiveMinutes, DateTime.UtcNow.AddHours(-1));
+                        var ticker = await restClient.FuturesApi.ExchangeData.GetKlinesAsync(randomSymbol.Symbol, FuturesKlineInterval.OneHour, DateTime.UtcNow.AddHours(-1));
 
                         var current = ticker.Data.LastOrDefault();
 
@@ -108,6 +132,7 @@ namespace Guap250494
                             randomSymbol.Symbol, mode, NewOrderType.Market, 25, quantityInQuoteAsset: 2, marginMode: FuturesMarginMode.Cross);
                             if (!placeOrderResult.Success)
                             {
+                                ErrorList.Add(randomSymbol.Symbol);
                                 Console.WriteLine("Failed to open position on " + randomSymbol.Symbol + ": " + placeOrderResult.Error);
                             }
                             if (placeOrderResult.Success)
@@ -117,12 +142,22 @@ namespace Guap250494
                             }
                         }
                     }
-                    await Task.Delay(1000 * 10);
-
                 }
             }
         }
     }
-
 }
 
+
+
+//var symbolList1 = await restClient.FuturesApi.Account.GetPositionsAsync();
+//foreach (var symbol in symbolList1.Data)
+//{
+//    if (symbol != null && symbol.CurrentQuantity < 0 && symbol.UnrealizedRoePercentage < -2m)
+//    {
+//        var placeOrderResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
+//                symbol.Symbol, OrderSide.Sell, NewOrderType.Market, 25, quantityInQuoteAsset: 1, marginMode: FuturesMarginMode.Cross);
+//        Console.WriteLine(placeOrderResult.Success + placeOrderResult?.Error?.Message);
+//    }
+
+//}
