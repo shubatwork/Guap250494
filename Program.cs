@@ -14,15 +14,24 @@ namespace Guap250494
         {
             while (true)
             {
-                if (true)
+                if (false)
                 {
                     restClient = new KucoinRestClient();
                     restClient.SetApiCredentials(new KucoinApiCredentials("6792c43bc0a1b1000135cb65", "25ab9c72-17e6-4951-b7a8-6e2fce9c3026", "test1234"));
                     var acountInfo = await restClient.FuturesApi.Account.GetAccountOverviewAsync("USDT");
+                    var pos1 = await restClient.FuturesApi.Account.GetPositionsAsync();
                     restClient = new KucoinRestClient();
                     restClient.SetApiCredentials(new KucoinApiCredentials("679b7a366425d800012aca8f", "99cd2f9a-b4ed-4fe3-8f6e-69d70e03eb51", "test1234"));
                     var acountInfo1 = await restClient.FuturesApi.Account.GetAccountOverviewAsync("USDT");
-                    Console.WriteLine((acountInfo.Data.MarginBalance + acountInfo1.Data.MarginBalance) + " - " + (acountInfo.Data.UnrealizedPnl + acountInfo1.Data.UnrealizedPnl) + " - " + acountInfo.Data.RiskRatio);
+                    var pos2 = await restClient.FuturesApi.Account.GetPositionsAsync();
+
+                    Console.WriteLine(Math.Round(acountInfo.Data.MarginBalance + acountInfo1.Data.MarginBalance, 3)
+                        + " - " +
+                        Math.Round(acountInfo.Data.UnrealizedPnl + acountInfo1.Data.UnrealizedPnl, 2)
+                        + " - "
+                        + Math.Round(acountInfo.Data.RiskRatio.Value, 2) + " - " + pos1.Data.Count()
+                    + " - " +
+                        Math.Round(acountInfo1.Data.RiskRatio.Value, 2) + " - " + pos2.Data.Count());
                     continue;
                 }
 
@@ -38,24 +47,14 @@ namespace Guap250494
             var mode = OrderSide.Buy;
             restClient.SetApiCredentials(new KucoinApiCredentials("6792c43bc0a1b1000135cb65", "25ab9c72-17e6-4951-b7a8-6e2fce9c3026", "test1234"));
             var acountInfo = await restClient.FuturesApi.Account.GetAccountOverviewAsync("USDT");
-            Console.WriteLine(acountInfo.Data.MarginBalance + " - " + acountInfo.Data.UnrealizedPnl + " - " + acountInfo.Data.RiskRatio);
 
             bool canCreate = acountInfo.Data.RiskRatio < .15M;
             var symbolList = await restClient.FuturesApi.Account.GetPositionsAsync();
-            KucoinPosition? kucoinPosition = symbolList.Data.Where(x => x.UnrealizedPnlPercentage > 0.002M).MaxBy(x => x.UnrealizedPnl);
+            KucoinPosition? kucoinPosition = symbolList.Data.Where(x => x.UnrealizedPnlPercentage > 0.003M).MaxBy(x => x.UnrealizedPnl);
             if (kucoinPosition != null)
             {
                 var closeOrderResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
                     kucoinPosition.Symbol, OrderSide.Buy, NewOrderType.Market, 0, closeOrder: true, marginMode: FuturesMarginMode.Cross);
-
-                if (closeOrderResult.Success)
-                {
-                    Console.WriteLine("Closed " + kucoinPosition.Symbol + " - " + kucoinPosition.UnrealizedPnl);
-                }
-                else
-                {
-                    Console.WriteLine("Failed to close " + kucoinPosition.Symbol + ": " + closeOrderResult.Error);
-                }
             }
 
             if (canCreate)
@@ -98,7 +97,7 @@ namespace Guap250494
                     if (current?.OpenPrice < current?.ClosePrice)
                     {
                         continue;
-                        
+
                     }
 
                     if (current?.OpenPrice > current?.ClosePrice)
@@ -152,7 +151,7 @@ namespace Guap250494
             Console.WriteLine(acountInfo.Data.MarginBalance + " - " + acountInfo.Data.UnrealizedPnl + " - " + acountInfo.Data.RiskRatio);
             bool canCreate = acountInfo.Data.RiskRatio < .15M;
             var symbolList = await restClient.FuturesApi.Account.GetPositionsAsync();
-            KucoinPosition? kucoinPosition = symbolList.Data.Where(x => x.UnrealizedPnlPercentage > 0.002M).MaxBy(x => x.UnrealizedPnl);
+            KucoinPosition? kucoinPosition = symbolList.Data.Where(x => x.UnrealizedPnlPercentage > 0.003M).MaxBy(x => x.UnrealizedPnl);
             if (kucoinPosition != null)
             {
                 var closeOrderResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
@@ -197,7 +196,6 @@ namespace Guap250494
                 var tickerList = await restClient.FuturesApi.ExchangeData.GetTickersAsync();
                 foreach (var randomSymbol in tickerList.Data.OrderByDescending(x => x.Symbol))
                 {
-                    var result = await restClient.FuturesApi.Account.SetMarginModeAsync(randomSymbol.Symbol, FuturesMarginMode.Cross);
                     if (symbolList.Data.Any(x => x.Symbol == randomSymbol.Symbol))
                     {
                         continue;
