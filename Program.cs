@@ -19,7 +19,6 @@ namespace Guap250494
                     continue;
                 }
 
-                Thread.Sleep(1000 * 60);
                 await CreateInMain();
                 await CreateInSub();
             }
@@ -36,7 +35,7 @@ namespace Guap250494
             var accountInfo2 = await GetAccountOverviewAsync(credentials2);
             var positions2 = await GetPositionsAsync(credentials2);
 
-            Console.WriteLine($"{Math.Round(accountInfo1.MarginBalance + accountInfo2.MarginBalance, 3)} - " +
+            Console.WriteLine($"{Math.Round(accountInfo1.MarginBalance + accountInfo2.MarginBalance, 2)} - " +
                               $"{Math.Round(accountInfo1.UnrealizedPnl + accountInfo2.UnrealizedPnl, 2)} - " +
                               $"{Math.Round(accountInfo1.RiskRatio!.Value, 2)} - {positions1.Count()} - " +
                               $"{Math.Round(accountInfo2.RiskRatio!.Value, 2)} - {positions2.Count()}");
@@ -76,15 +75,20 @@ namespace Guap250494
             var credentials = GetApiCredentials("API_KEY_1", "API_SECRET_1", "API_PASSPHRASE_1");
             var accountInfo = await GetAccountOverviewAsync(credentials);
 
-            bool canCreate = accountInfo.RiskRatio < .15M;
+            bool canCreate = accountInfo.RiskRatio < .20M;
+            bool canIncrease = accountInfo.RiskRatio < .30M;
             var symbolList = await GetPositionsAsync(credentials);
             await CloseProfitablePosition(symbolList);
 
+            if (canIncrease)
+            {
+                await PlaceOrders(symbolList, OrderSide.Sell, .1m);
+                await PlaceOrders(symbolList, OrderSide.Buy, .1m);
+            }
+
             if (canCreate)
             {
-                await PlaceOrders(symbolList, OrderSide.Sell, 1m);
-                await PlaceOrders(symbolList, OrderSide.Buy, 1m);
-                await OpenNewPosition(symbolList);
+                await OpenNewPosition(symbolList , OrderSide.Sell);
             }
         }
 
@@ -94,23 +98,27 @@ namespace Guap250494
             var accountInfo = await GetAccountOverviewAsync(credentials);
             Console.WriteLine($"{accountInfo.MarginBalance} - {accountInfo.UnrealizedPnl} - {accountInfo.RiskRatio}");
 
-            bool canCreate = accountInfo.RiskRatio < .15M;
+            bool canCreate = accountInfo.RiskRatio < .20M;
+            bool canIncrease = accountInfo.RiskRatio < .30M;
             var symbolList = await GetPositionsAsync(credentials);
             await CloseProfitablePosition(symbolList);
+            if (canIncrease)
+            {
+                await PlaceOrders(symbolList, OrderSide.Sell, .1m);
+                await PlaceOrders(symbolList, OrderSide.Buy, .1m);
+            }
             if (canCreate)
             {
-                await PlaceOrders(symbolList, OrderSide.Sell, 1m);
-                await PlaceOrders(symbolList, OrderSide.Buy, 1m);
-                await OpenNewPosition(symbolList);
+                 await OpenNewPosition(symbolList, OrderSide.Buy);
             }
         }
 
         private static async Task CloseProfitablePosition(IEnumerable<KucoinPosition> symbolList)
         {
-            var kucoinPosition = symbolList.Where(x => x.UnrealizedPnl > 0.05M).MaxBy(x => x.UnrealizedPnl);
+            var kucoinPosition = symbolList.Where(x => x.UnrealizedPnl > 0.01M).MaxBy(x => x.UnrealizedPnl);
             if (kucoinPosition != null)
             {
-                var closeOrderResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
+                var closeOrderResult = await restClient!.FuturesApi.Trading.PlaceOrderAsync(
                     kucoinPosition.Symbol, OrderSide.Buy, NewOrderType.Market, 0, closeOrder: true, marginMode: FuturesMarginMode.Cross);
 
                 if (closeOrderResult.Success)
@@ -130,15 +138,16 @@ namespace Guap250494
             {
                 if (symbol != null && ((side == OrderSide.Sell && symbol.CurrentQuantity < 0) || (side == OrderSide.Buy && symbol.CurrentQuantity > 0)) && symbol.UnrealizedRoePercentage > roeThreshold)
                 {
-                    var placeOrderResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
+                    var placeOrderResult = await restClient!.FuturesApi.Trading.PlaceOrderAsync(
                         symbol.Symbol, side, NewOrderType.Market, 25, quantityInQuoteAsset: 1, marginMode: FuturesMarginMode.Cross);
                 }
             }
         }
 
-        private static async Task OpenNewPosition(IEnumerable<KucoinPosition> symbolList)
+        private static async Task OpenNewPosition(IEnumerable<KucoinPosition> symbolList, OrderSide orderSide)
         {
-            var tickerList = await restClient.FuturesApi.ExchangeData.GetTickersAsync();
+            OrderSide? mode = null;
+            var tickerList = await restClient!.FuturesApi.ExchangeData.GetTickersAsync();
             var random = new Random();
             int r = random.Next(tickerList.Data.Count());
             var randomSymbol = tickerList.Data.ElementAt(r);
@@ -148,18 +157,25 @@ namespace Guap250494
                     return;
                 }
 
-                var ticker = await restClient.FuturesApi.ExchangeData.GetKlinesAsync(randomSymbol.Symbol, FuturesKlineInterval.OneHour, DateTime.UtcNow.AddHours(-1));
+                var ticker = await restClient.FuturesApi.ExchangeData.GetKlinesAsync(randomSymbol.Symbol, FuturesKlineInterval.OneDay, DateTime.UtcNow.AddDays(-1));
                 var current = ticker.Data.LastOrDefault();
 
-                if (current?.OpenPrice < current?.ClosePrice)
+                if (current?.OpenPrice < current?.ClosePrice && orderSide == OrderSide.Buy)
+                {
+                    mode = OrderSide.Buy; 
+                }
+                else if (current?.OpenPrice > current?.ClosePrice && orderSide == OrderSide.Sell)
+                {
+                    mode = OrderSide.Sell;
+                }
+
+                if (mode == null)
                 {
                     return;
                 }
 
-                var mode = current?.OpenPrice > current?.ClosePrice ? OrderSide.Buy : OrderSide.Sell;
-
                 var placeOrderResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
-                    randomSymbol.Symbol, mode, NewOrderType.Market, 25, quantityInQuoteAsset: 1, marginMode: FuturesMarginMode.Cross);
+                    randomSymbol.Symbol, mode.Value, NewOrderType.Market, 25, quantityInQuoteAsset: 1, marginMode: FuturesMarginMode.Cross);
 
                 if (placeOrderResult.Success)
                 {
@@ -168,7 +184,7 @@ namespace Guap250494
                 }
                 else
                 {
-                    await RetryPlaceOrder(randomSymbol.Symbol, mode);
+                    await RetryPlaceOrder(randomSymbol.Symbol, mode.Value);
                 }
             }
         }
@@ -177,7 +193,7 @@ namespace Guap250494
         {
             for (int i = 2; i <= 4; i++)
             {
-                var placeOrderResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
+                var placeOrderResult = await restClient!.FuturesApi.Trading.PlaceOrderAsync(
                     symbol, mode, NewOrderType.Market, 25, quantityInQuoteAsset: i, marginMode: FuturesMarginMode.Cross);
 
                 if (placeOrderResult.Success)
